@@ -1,0 +1,4 @@
+#!/bin/bash
+
+gcc -O3 -D_DEFAULT_SOURCE -Wall -std=c11 pcc_server.c -o server
+gcc -O3 -D_DEFAULT_SOURCE -Wall -std=c11 pcc_client.c -o client
