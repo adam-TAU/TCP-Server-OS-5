@@ -14,14 +14,17 @@
 
 int main(int argc, char *argv[])
 {
-
+	struct stat sb;
 	struct sockaddr_in serv_addr; // where we Want to get to
 	struct sockaddr_in my_addr;   // where we actually connected through 
 	struct sockaddr_in peer_addr; // where we actually connected to
 	socklen_t addrsize = sizeof(struct sockaddr_in );
 	
 	
-	int  sockfd     = -1;
+	int totalsent = -1;
+	int nsent     = -1;
+	int connfd    = -1;
+	int notwritten = -1;
 	int  bytes_read =  0;
 	char recv_buff[1024];
 
@@ -80,6 +83,71 @@ int main(int argc, char *argv[])
 			"\t\tTarget IP: %s Target Port: %d\n",
 			inet_ntoa((my_addr.sin_addr)),    ntohs(my_addr.sin_port),
 			inet_ntoa((peer_addr.sin_addr)),  ntohs(peer_addr.sin_port));
+
+	// send the amount of bytes we will send
+	if ( -1 == stat(file_path, &sb) ) {
+		// handle error
+	}
+	
+	unsigned int number_bytes_send_h = sb.st_size;
+	unsigned int number_bytes_send_n = htonl(number_bytes_send_h);
+	char* data_buff = (char*) number_bytes_send_n;
+	
+	nsent = 0;
+	totalsent = 0;
+	notwritten = sizeof(unsigned int);
+	// keep looping until nothing left to write
+	while( notwritten > 0 )
+	{
+		// notwritten = how much we have left to write
+		// totalsent  = how much we've written so far
+		// nsent = how much we've written in last write() call */
+		nsent = write(connfd,
+				data_buff + totalsent,
+				notwritten);
+		// check if error occured (client closed connection?)
+		assert( nsent >= 0);
+		printf("Server: wrote %d bytes\n", nsent);
+
+		totalsent  += nsent;
+		notwritten -= nsent;
+	}
+	
+	
+	// send the bytes from the file
+	char data_buff[1000000]; // 1MB buffer
+	unsigned int total_file_sent = 0;
+	unsigned int file_notread = number_bytes_send_h;
+	while( file_notread > 0 ) {
+		
+		bytes_read_from_file = read(fd, data_buff, 1000000);
+		if ( bytes_read_from_file < 0 ) {
+			// handle error
+		}
+	
+		nsent = 0;
+		totalsent = 0;
+		notwritten = bytes_read_from_file;
+		
+		while( notwritten > 0 )
+		{
+			// notwritten = how much we have left to write
+			// totalsent  = how much we've written so far
+			// nsent = how much we've written in last write() call */
+			nsent = write(connfd,
+					data_buff + totalsent,
+					notwritten);
+			// check if error occured (client closed connection?)
+			assert( nsent >= 0);
+			printf("Server: wrote %d bytes\n", nsent);
+
+			totalsent  += nsent;
+			notwritten -= nsent;
+		}
+		
+		file_notread -= bytes_read_from_file;
+		total_file_sent += 0;
+	}
 
 	// read data from server into recv_buff
 	// block until there's something to read

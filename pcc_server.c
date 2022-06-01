@@ -26,12 +26,18 @@ int main(int argc, char *argv[])
 	struct sockaddr_in peer_addr;
 	socklen_t addrsize = sizeof(struct sockaddr_in );
 
+	// datastructure
+	unsigned int pcc_total[95];
+	unsigned int pcc_tmp[95];
+
+	// parse args
 	if (args != 2) {
 		// handle error	
 	}
 
 	unsigned short port = atoi(argv[1]); // transfer to 16 bit
 
+	// fetch connections
 	char data_buff[1024];
 	time_t ticks;
 
@@ -82,13 +88,53 @@ int main(int argc, char *argv[])
 				inet_ntoa( my_addr.sin_addr   ),
 				ntohs(     my_addr.sin_port   ) );
 
-		// write time
-		ticks = time(NULL);
-		snprintf( data_buff, sizeof(data_buff),
-				"%.24s\r\n", ctime(&ticks));
+		// read the amount of characters that should be sent
+		unsigned int bytes_to_read_n;
+		char* bytes_to_read_buff = (char*) bytes_to_read_n;
+		int notread = 0;
+		int nread = 0;
+		int totalread = 0;
+		
+		notread = sizeof(unsigned int);
+		while ( notread > 0 ) {
+			nread = read(connfd, bytes_to_read_buff + totalread, notread);
+			// check if error occured (client closed connection?)
+			assert(nread >= 0);
+			
+			totalread += nread;
+			notread -= nread;
+		}
 
+		unsigned int bytes_to_read_h = ntohl(bytes_to_read_n);
+		
+		// read the whole file
+		char data_buff[1000000];
+		notread_from_file = bytes_to_read_h;
+		nread = 0;
+		totalread = 0;
+		
+		while ( notread_from_file > 0 ) {
+			
+			notread = (notread_from_file >= 1000000) ? 1000000 : notread_from_file;
+			while ( notread > 0 ) {
+				nread = read(connfd, data_buff + totalread, notread);
+				// check if error occured (client closed connection?)
+				assert(nread >= 0);
+				
+				totalread += nread;
+				notread -= nread;
+			}
+			
+			// process characters read from buffer
+		}
+
+
+		// write time
+		nsent = 0;
 		totalsent = 0;
-		int notwritten = strlen(data_buff);
+		int notwritten = sizeof(unsigned int);
+		printable_amount = htonl(printable_amount);
+		char* printable_amount_buff = (char*) printable_amount;
 
 		// keep looping until nothing left to write
 		while( notwritten > 0 )
@@ -97,7 +143,7 @@ int main(int argc, char *argv[])
 			// totalsent  = how much we've written so far
 			// nsent = how much we've written in last write() call */
 			nsent = write(connfd,
-					data_buff + totalsent,
+					printable_amount_buff + totalsent,
 					notwritten);
 			// check if error occured (client closed connection?)
 			assert( nsent >= 0);
