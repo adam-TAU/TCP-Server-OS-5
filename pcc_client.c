@@ -14,6 +14,13 @@
 
 int main(int argc, char *argv[])
 {
+
+	struct sockaddr_in serv_addr; // where we Want to get to
+	struct sockaddr_in my_addr;   // where we actually connected through 
+	struct sockaddr_in peer_addr; // where we actually connected to
+	socklen_t addrsize = sizeof(struct sockaddr_in );
+	
+	
 	int  sockfd     = -1;
 	int  bytes_read =  0;
 	char recv_buff[1024];
@@ -24,7 +31,7 @@ int main(int argc, char *argv[])
 
 	// parse arguments
 	char* ip_addr = argv[1];
-	unsigned int port = atoi(argv[2]); // transfer to 16 bit
+	unsigned short port = atoi(argv[2]); // transfer to 16 bit
 	char* file_path = argv[3]; // try opening the file and return an error accordingly 
 
 	// open dedicated file
@@ -33,14 +40,7 @@ int main(int argc, char *argv[])
 		// handle error
 	}
 
-	// 
-
-
-	struct sockaddr_in serv_addr; // where we Want to get to
-	struct sockaddr_in my_addr;   // where we actually connected through 
-	struct sockaddr_in peer_addr; // where we actually connected to
-	socklen_t addrsize = sizeof(struct sockaddr_in );
-
+	// create tcp connection to server on port
 	memset(recv_buff, 0,sizeof(recv_buff));
 	if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
 	{
@@ -58,8 +58,8 @@ int main(int argc, char *argv[])
 
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_port = htons(10000); // Note: htons for endiannes
-	serv_addr.sin_addr.s_addr = inet_addr("127.0.0.1"); // hardcoded...
+	serv_addr.sin_port = htons(port); // Note: htons for endiannes
+	serv_addr.sin_addr.s_addr = inet_addr(ip_addr); // hardcoded...
 
 	printf("Client: connecting...\n");
 	// Note: what about the client port number?

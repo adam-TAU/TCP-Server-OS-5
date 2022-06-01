@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 		// handle error	
 	}
 
-	unsigned int port = atoi(argv[1]); // transfer to 16 bit
+	unsigned short port = atoi(argv[1]); // transfer to 16 bit
 
 	char data_buff[1024];
 	time_t ticks;
@@ -41,7 +41,7 @@ int main(int argc, char *argv[])
 	serv_addr.sin_family = AF_INET;
 	// INADDR_ANY = any local machine address
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(10000);
+	serv_addr.sin_port = htons(port);
 
 	if( 0 != bind( listenfd,
 				(struct sockaddr*) &serv_addr,
