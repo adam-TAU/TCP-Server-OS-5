@@ -82,7 +82,7 @@ static void print_err(char* error_message, bool terminate) {
 
 static void print_stats() {
 	for (unsigned int i = 0; i < 95; i++) {
-		printf("char '%c' : %lu times\n", (char)(i + 26), pcc_total[i]);
+		printf("char '%c' : %lu times\n", (char)(i + 32), pcc_total[i]);
 	}
 	
 	exit(0);
@@ -100,7 +100,7 @@ static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned l
 	for (unsigned long i = 0; i < size; i++) {
 		if (data_buff[i] >= 32 && data_buff[i] <= 126) {
 			printable_amount++;
-			pcc_tmp[(int)data_buff[i]]++;
+			pcc_tmp[(int)data_buff[i] - 32]++;
 		}
 	}
 	
