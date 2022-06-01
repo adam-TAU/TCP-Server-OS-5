@@ -56,7 +56,7 @@ static void update_total(unsigned long pcc_tmp[]);
 
 /* returns the number of printable characters in <data_buff>, and increments each 
  * printable character's index equivalent in <pcc_tmp> */
-static unsigned int update_tmp(char data_buff[], unsigned int size, unsigned long pcc_tmp[]);
+static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned long pcc_tmp[]);
 
 /* This function is called upon receiving an EOF or a TCP error when powering
  * a syscall for receiving/sending data. Error messages are printed accordingly */
@@ -94,10 +94,10 @@ static void update_total(unsigned long pcc_tmp[]) {
 	}
 }
 
-static unsigned int update_tmp(char data_buff[], unsigned int size, unsigned long pcc_tmp[]) {
-	unsigned int printable_amount = 0;
+static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned long pcc_tmp[]) {
+	unsigned long printable_amount = 0;
 	
-	for (unsigned int i = 0; i < size; i++) {
+	for (unsigned long i = 0; i < size; i++) {
 		if (data_buff[i] >= 32 && data_buff[i] <= 126) {
 			printable_amount++;
 			pcc_tmp[(int)data_buff[i]]++;
@@ -211,13 +211,13 @@ int main(int argc, char *argv[])
 				ntohs(     my_addr.sin_port   ) );
 
 		// read the amount of characters that should be sent
-		unsigned int bytes_to_read_n;
+		unsigned long bytes_to_read_n;
 		char* bytes_to_read_buff = (char*) (&bytes_to_read_n);
 		int notread = 0;
 		int nread = 0;
 		int totalread = 0;
 		
-		notread = sizeof(unsigned int);
+		notread = sizeof(unsigned long);
 		while ( notread > 0 ) {
 			nread = read(connfd, bytes_to_read_buff + totalread, notread);
 			// check if error occured (client closed connection?)
@@ -230,10 +230,10 @@ int main(int argc, char *argv[])
 			notread -= nread;
 		}
 
-		unsigned int bytes_to_read_h = ntohl(bytes_to_read_n);
+		unsigned long bytes_to_read_h = ntohl(bytes_to_read_n);
 		
 		// read the whole file
-		unsigned int printable_amount = 0;
+		unsigned long printable_amount = 0;
 		int notread_from_file = bytes_to_read_h;
 		nread = 0;
 		totalread = 0;
@@ -244,7 +244,9 @@ int main(int argc, char *argv[])
 			while ( notread > 0 ) {
 				nread = read(connfd, data_buff + totalread, notread);
 				// check if error occured (client closed connection?)
-				assert(nread >= 0);
+				if (nread <= 0) {
+					handle_connection_termination(nread == 0);
+				}
 				
 				totalread += nread;
 				notread -= nread;
@@ -258,7 +260,7 @@ int main(int argc, char *argv[])
 		// write time
 		nsent = 0;
 		totalsent = 0;
-		int notwritten = sizeof(unsigned int);
+		int notwritten = sizeof(unsigned long);
 		printable_amount = htonl(printable_amount);
 		char* printable_amount_buff = (char*) (&printable_amount);
 
@@ -272,7 +274,10 @@ int main(int argc, char *argv[])
 					printable_amount_buff + totalsent,
 					notwritten);
 			// check if error occured (client closed connection?)
-			assert( nsent >= 0);
+			if (nsent <= 0) {
+				handle_connection_termination(false);
+			}
+
 			printf("Server: wrote %d bytes\n", nsent);
 
 			totalsent  += nsent;
