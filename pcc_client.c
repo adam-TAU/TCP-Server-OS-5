@@ -22,7 +22,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
-
+#include <errno.h>
 
 
 #define bool int
@@ -60,7 +60,7 @@ static void print_err(char* error_message, bool terminate) {
 
 static void handle_connection_termination(bool is_ret_zero) {
 	if (is_ret_zero) { // client unexpectedly killing
-		print_err("Error: Received EOF, connection probably closed", false); // don't terminate
+		print_err("Error: Received EOF - connection may have been closed", false); // don't terminate
 	} else { // other errors
 		if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
 			print_err("Error: Client connection terminated due to TCP errors", false); // don't terminate
@@ -88,14 +88,13 @@ int main(int argc, char *argv[])
 	
 	int totalsent = -1;
 	int nsent     = -1;
-	int connfd    = -1;
 	int  sockfd     = -1;
 	int notwritten = -1;
 	int  bytes_read =  0;
-	char recv_buff[1024];
 
 	if (argc != 4) {
-		// handle error	
+		errno = EINVAL;
+		print_err("Error: Not enough arguments passed", true);
 	}
 
 	// parse arguments
@@ -106,15 +105,13 @@ int main(int argc, char *argv[])
 	// open dedicated file
 	int fd;
 	if ( -1 == (fd = open(file_path, O_RDONLY)) ) {
+		print_err("Error: Couldn't open the file given as a parameter", true);
 		// handle error
 	}
 
 	// create tcp connection to server on port
-	memset(recv_buff, 0,sizeof(recv_buff));
-	if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-	{
-		printf("\n Error : Could not create socket \n");
-		return 1;
+	if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+		print_err("Error: Couldn't create a socket", true);
 	}
 
 	// print socket details
@@ -135,10 +132,8 @@ int main(int argc, char *argv[])
 	// connect socket to the target address
 	if( connect(sockfd,
 				(struct sockaddr*) &serv_addr,
-				sizeof(serv_addr)) < 0)
-	{
-		printf("\n Error : Connect Failed. %s \n", strerror(errno));
-		return 1;
+				sizeof(serv_addr)) < 0)	{
+		print_err("Error: Couldn't connect to server", true);
 	}
 
 	// print socket details again
@@ -157,7 +152,7 @@ int main(int argc, char *argv[])
 	
 	unsigned long number_bytes_send_h = sb.st_size;
 	unsigned long number_bytes_send_n = htonl(number_bytes_send_h);
-	char* number_bytes_send_n_buff = (char*) (&number_bytes_send_n);
+	void* number_bytes_send_n_buff = (void*) (&number_bytes_send_n);
 	
 	nsent = 0;
 	totalsent = 0;
@@ -168,7 +163,7 @@ int main(int argc, char *argv[])
 		// notwritten = how much we have left to write
 		// totalsent  = how much we've written so far
 		// nsent = how much we've written in last write() call */
-		nsent = write(connfd,
+		nsent = write(sockfd,
 				number_bytes_send_n_buff + totalsent,
 				notwritten);
 		// check if error occured (client closed connection?)
@@ -181,7 +176,6 @@ int main(int argc, char *argv[])
 		totalsent  += nsent;
 		notwritten -= nsent;
 	}
-	
 	
 	// send the bytes from the file
 	char data_buff[1000000]; // 1MB buffer
@@ -204,7 +198,7 @@ int main(int argc, char *argv[])
 			// notwritten = how much we have left to write
 			// totalsent  = how much we've written so far
 			// nsent = how much we've written in last write() call */
-			nsent = write(connfd,
+			nsent = write(sockfd,
 					data_buff + totalsent,
 					notwritten);
 			// check if error occured (client closed connection?)
@@ -224,14 +218,14 @@ int main(int argc, char *argv[])
 
 	// read the amount of printable characters that the server recognized
 	unsigned long printable_amount_n;
-	char* printable_amount_n_buff = (char*) (&printable_amount_n);
+	void* printable_amount_n_buff = (void*) (&printable_amount_n);
 	int notread = 0;
 	int nread = 0;
 	int totalread = 0;
 	
 	notread = sizeof(unsigned long);
 	while ( notread > 0 ) {
-		nread = read(connfd, printable_amount_n_buff + totalread, notread);
+		nread = read(sockfd, printable_amount_n_buff + totalread, notread);
 		// check if error occured (client closed connection?)
 		if (nread <= 0) {
 			handle_connection_termination(nread == 0); // handle the error accordingly

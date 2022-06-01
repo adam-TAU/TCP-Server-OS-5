@@ -23,7 +23,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <assert.h>
-
+#include <signal.h>
 
 #define bool int
 #define true 1
@@ -63,7 +63,7 @@ static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned l
 static void handle_connection_termination(bool is_ret_zero);
 
 /* Signal handler for SIGINT */
-static int server_sigint(void);
+static void server_sigint(int);
 /**************************************************/
 
 
@@ -109,7 +109,7 @@ static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned l
 
 static void handle_connection_termination(bool is_ret_zero) {
 	if (is_ret_zero) { // client unexpectedly killing
-		print_err("Error: Received EOF, connection probably closed", false); // don't terminate
+		print_err("Error: Received EOF - connection may have been closed", false); // don't terminate
 	} else { // other errors
 		if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
 			print_err("Error: Client connection terminated due to TCP errors", false); // don't terminate
@@ -119,14 +119,12 @@ static void handle_connection_termination(bool is_ret_zero) {
 	}
 }
 
-static int server_sigint(void) {
+static void server_sigint(int sig) {
 	if (processing) {
 		finished = true;
 	} else {
 		print_stats();
 	}
-	
-	return 0;
 }
 
 
@@ -137,6 +135,12 @@ static int server_sigint(void) {
 
 int main(int argc, char *argv[])
 {
+	// connecting signal handler
+	struct sigaction sa_int;
+	sa_int.sa_handler = server_sigint; // make the handling of SIGINT default again (I.E. terminate upon a SIGINT)
+	sa_int.sa_flags = SA_RESTART;
+	if ( 0 > sigaction(SIGINT, &sa_int, 0) ) print_err("Error: Couldn't set SIG_INT handler", true);
+
 	int totalsent = -1;
 	int nsent     = -1;
 	int listenfd  = -1;
@@ -150,9 +154,12 @@ int main(int argc, char *argv[])
 	// datastructure
 	unsigned long pcc_tmp[95];
 
+	
+
 	// parse args
 	if (argc != 2) {
-		// handle error	
+		errno = EINVAL;
+		print_err("Error: Not enough arguments passed", true);
 	}
 
 	unsigned short port = atoi(argv[1]); // transfer to 16 bit
@@ -160,7 +167,10 @@ int main(int argc, char *argv[])
 	// fetch connections
 	char data_buff[1000000];
 
-	listenfd = socket( AF_INET, SOCK_STREAM, 0 );
+	if ( -1 == (listenfd = socket( AF_INET, SOCK_STREAM, 0 )) ) {
+		print_err("Error: Couldn't open a socket", true);
+	}
+	
 	memset( &serv_addr, 0, addrsize );
 
 	serv_addr.sin_family = AF_INET;
@@ -168,22 +178,25 @@ int main(int argc, char *argv[])
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(port);
 
+	// enabling port reuse after server terminates
+	int option_value = 1;
+	if ( -1 == (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &option_value, sizeof(int))) ) {
+		print_err("Error: Couldn't set socket options", true);
+	}
+
 	if( 0 != bind( listenfd,
 				(struct sockaddr*) &serv_addr,
-				addrsize ) )
-	{
+				addrsize ) ) {
 		printf("\n Error : Bind Failed. %s \n", strerror(errno));
 		return 1;
 	}
 
-	if( 0 != listen( listenfd, 10 ) )
-	{
+	if( 0 != listen( listenfd, 10 ) ) {
 		printf("\n Error : Listen Failed. %s \n", strerror(errno));
 		return 1;
 	}
 
-	while( !finished )
-	{
+	while( !finished ) {
 		
 		
 		// Accept a connection.
@@ -212,13 +225,14 @@ int main(int argc, char *argv[])
 
 		// read the amount of characters that should be sent
 		unsigned long bytes_to_read_n;
-		char* bytes_to_read_buff = (char*) (&bytes_to_read_n);
-		int notread = 0;
-		int nread = 0;
-		int totalread = 0;
+		void* bytes_to_read_buff = (void*) (&bytes_to_read_n);
+		unsigned long notread = 0;
+		unsigned long nread = 0;
+		unsigned long totalread = 0;
 		
 		notread = sizeof(unsigned long);
 		while ( notread > 0 ) {
+		
 			nread = read(connfd, bytes_to_read_buff + totalread, notread);
 			// check if error occured (client closed connection?)
 			if (nread <= 0) {
@@ -235,10 +249,11 @@ int main(int argc, char *argv[])
 		// read the whole file
 		unsigned long printable_amount = 0;
 		int notread_from_file = bytes_to_read_h;
-		nread = 0;
-		totalread = 0;
+
 		
 		while ( notread_from_file > 0 ) {
+			nread = 0;
+			totalread = 0;
 			
 			notread = (notread_from_file >= 1000000) ? 1000000 : notread_from_file;
 			while ( notread > 0 ) {
@@ -252,6 +267,8 @@ int main(int argc, char *argv[])
 				notread -= nread;
 			}
 			
+			notread_from_file -= totalread;
+			
 			// process characters read from buffer
 			printable_amount += update_tmp(data_buff, totalread, pcc_tmp);
 		}
@@ -262,7 +279,7 @@ int main(int argc, char *argv[])
 		totalsent = 0;
 		int notwritten = sizeof(unsigned long);
 		printable_amount = htonl(printable_amount);
-		char* printable_amount_buff = (char*) (&printable_amount);
+		void* printable_amount_buff = (void*) (&printable_amount);
 
 		// keep looping until nothing left to write
 		while( notwritten > 0 )
