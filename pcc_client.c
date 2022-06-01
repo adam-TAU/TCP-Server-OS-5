@@ -9,6 +9,8 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 // MINIMAL ERROR HANDLING FOR EASE OF READING
 
@@ -28,7 +30,7 @@ int main(int argc, char *argv[])
 	int  bytes_read =  0;
 	char recv_buff[1024];
 
-	if (args != 4) {
+	if (argc != 4) {
 		// handle error	
 	}
 
@@ -91,7 +93,7 @@ int main(int argc, char *argv[])
 	
 	unsigned int number_bytes_send_h = sb.st_size;
 	unsigned int number_bytes_send_n = htonl(number_bytes_send_h);
-	char* data_buff = (char*) number_bytes_send_n;
+	char* data_buff = (char*) (&number_bytes_send_n);
 	
 	nsent = 0;
 	totalsent = 0;
