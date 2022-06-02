@@ -36,9 +36,22 @@
  * terminate the calling process. */
 static void print_err(char* error_message, bool terminate);
 
-/* This function is called upon receiving an EOF or a TCP error when powering
- * a syscall for receiving/sending data. Error messages are printed accordingly */
-static void handle_connection_termination(bool is_ret_zero);
+/* This function receives an already connected socket with its file descriptor
+ * of <sockfd>, the amount of bytes to receive named <size>, and the buffer
+ * to save the sent bytes into named <buff> */
+static void recv_data(int sockfd, void *buff, unsigned long size);
+
+/* This function receives an already connected socket with its file descriptor
+ * of <sockfd>, the amount of bytes to send <size>, and the source of bytes
+ * to send named <buff>, and sends all of the bytes to the server on the 
+ * other end */
+static void send_data(int sockfd, void *buff, unsigned long size);
+
+/* This function receives an already connected socket with its file descriptor
+ * of <sockfd>, and a file descriptor named <file_fd> of the file we want to send
+ * over the socket, and sends all of the contents of the file at <file_fd> over
+ * the socket */
+static void send_file(int sockfd, int file_fd);
 /**************************************************/
 
 
@@ -56,41 +69,93 @@ static void print_err(char* error_message, bool terminate) {
 	}
 }
 
-
-
-static void handle_connection_termination(bool is_ret_zero) {
-	if (is_ret_zero) { // client unexpectedly killing
-		print_err("Error: Received EOF - connection may have been closed", false); // don't terminate
-	} else { // other errors
-		if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
-			print_err("Error: Client connection terminated due to TCP errors", false); // don't terminate
-		} else {
-			print_err("Error: unexpected error when receiving/sending data", true); // do terminate
+static void recv_data(int sockfd, void *buff, unsigned long size) {
+	int notread = 0;
+	int nread = 0;
+	int totalread = 0;
+	
+	notread = size;
+	while ( notread > 0 ) {
+		nread = read(sockfd, buff + totalread, notread);
+		// check if error occured (client closed connection?)
+		if (nread < 0) {
+			print_err("Error: Couldn't read from socket", true);
 		}
+		
+		totalread += nread;
+		notread -= nread;
 	}
 }
+
+static void send_data(int sockfd, void *buff, unsigned long size) {
+	unsigned long nsent = 0;
+	unsigned long totalsent = 0;
+	unsigned long notwritten = size;
+	
+	while( notwritten > 0 ) {
+		// notwritten = how much we have left to write
+		// totalsent  = how much we've written so far
+		// nsent = how much we've written in last write() call */
+		nsent = write(sockfd,
+				buff + totalsent,
+				notwritten);
+		// check if error occured (client closed connection?)
+		if (nsent < 0) {
+			print_err("Error: Couldn't send data through socket", true);
+		}
+
+		printf("Server: wrote %lu bytes\n", nsent);
+
+		totalsent  += nsent;
+		notwritten -= nsent;
+	}
+}
+
+static void send_file(int sockfd, int file_fd) {
+
+	struct stat sb;
+
+	// send the amount of bytes we will send
+	if ( -1 == fstat(file_fd, &sb) ) {
+		print_err("Error: Couldn't `stat` the supplied file", true);
+	}
+	
+	unsigned long number_bytes_send_h = sb.st_size;
+	unsigned long number_bytes_send_n = htonl(number_bytes_send_h);
+	void* number_bytes_send_n_buff = (void*) (&number_bytes_send_n);
+	send_data(sockfd, number_bytes_send_n_buff, sizeof(unsigned long));
+	
+	
+	char data_buff[1000000]; // 1MB buffer
+	unsigned long bytes_read_from_file = 0;
+	unsigned long file_notread = number_bytes_send_h;
+	
+	while( file_notread > 0 ) {
+		
+		bytes_read_from_file = read(file_fd, data_buff, 1000000);
+		if ( bytes_read_from_file < 0 ) {
+			// handle error
+		}
+	
+		send_data(sockfd, data_buff, bytes_read_from_file);		
+		file_notread -= bytes_read_from_file;
+	}
+}
+/************************************************************/
+
 
 
 
 
 /*************** MAIN ******************/
-
-// MINIMAL ERROR HANDLING FOR EASE OF READING
-
-int main(int argc, char *argv[])
-{
-	struct stat sb;
+int main(int argc, char *argv[]) {
+	
 	struct sockaddr_in serv_addr; // where we Want to get to
 	struct sockaddr_in my_addr;   // where we actually connected through 
 	struct sockaddr_in peer_addr; // where we actually connected to
 	socklen_t addrsize = sizeof(struct sockaddr_in );
 	
-	
-	int totalsent = -1;
-	int nsent     = -1;
 	int  sockfd     = -1;
-	int notwritten = -1;
-	int  bytes_read =  0;
 
 	if (argc != 4) {
 		errno = EINVAL;
@@ -130,9 +195,7 @@ int main(int argc, char *argv[])
 	printf("Client: connecting...\n");
 	// Note: what about the client port number?
 	// connect socket to the target address
-	if( connect(sockfd,
-				(struct sockaddr*) &serv_addr,
-				sizeof(serv_addr)) < 0)	{
+	if( connect(sockfd,	(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)	{
 		print_err("Error: Couldn't connect to server", true);
 	}
 
@@ -144,102 +207,19 @@ int main(int argc, char *argv[])
 			"\t\tTarget IP: %s Target Port: %d\n",
 			inet_ntoa((my_addr.sin_addr)),    ntohs(my_addr.sin_port),
 			inet_ntoa((peer_addr.sin_addr)),  ntohs(peer_addr.sin_port));
-
-	// send the amount of bytes we will send
-	if ( -1 == stat(file_path, &sb) ) {
-		// handle error
-	}
-	
-	unsigned long number_bytes_send_h = sb.st_size;
-	unsigned long number_bytes_send_n = htonl(number_bytes_send_h);
-	void* number_bytes_send_n_buff = (void*) (&number_bytes_send_n);
-	
-	nsent = 0;
-	totalsent = 0;
-	notwritten = sizeof(unsigned long);
-	// keep looping until nothing left to write
-	while( notwritten > 0 )
-	{
-		// notwritten = how much we have left to write
-		// totalsent  = how much we've written so far
-		// nsent = how much we've written in last write() call */
-		nsent = write(sockfd,
-				number_bytes_send_n_buff + totalsent,
-				notwritten);
-		// check if error occured (client closed connection?)
-		if (nsent <= 0) {
-			handle_connection_termination(false);
-		}
-		
-		printf("Server: wrote %d bytes\n", nsent);
-
-		totalsent  += nsent;
-		notwritten -= nsent;
-	}
 	
 	// send the bytes from the file
-	char data_buff[1000000]; // 1MB buffer
-	unsigned long bytes_read_from_file = 0;
-	unsigned long total_file_sent = 0;
-	unsigned long file_notread = number_bytes_send_h;
-	while( file_notread > 0 ) {
-		
-		bytes_read_from_file = read(fd, data_buff, 1000000);
-		if ( bytes_read_from_file < 0 ) {
-			// handle error
-		}
+	send_file(sockfd, fd);
+
+	// read the amount of printable characters that the server recognized in the file
+	unsigned long printable_chars_n;
+	recv_data(sockfd, &printable_chars_n, sizeof(unsigned long));
+	unsigned long printable_chars_h = ntohl(printable_chars_n);
 	
-		nsent = 0;
-		totalsent = 0;
-		notwritten = bytes_read_from_file;
+	// print the amount of printable characters in the supplied file
+	printf("# of printable characters: %lu\n", printable_chars_h);
 		
-		while( notwritten > 0 )
-		{
-			// notwritten = how much we have left to write
-			// totalsent  = how much we've written so far
-			// nsent = how much we've written in last write() call */
-			nsent = write(sockfd,
-					data_buff + totalsent,
-					notwritten);
-			// check if error occured (client closed connection?)
-			if (nsent <= 0) {
-				handle_connection_termination(false);
-			}
-
-			printf("Server: wrote %d bytes\n", nsent);
-
-			totalsent  += nsent;
-			notwritten -= nsent;
-		}
-		
-		file_notread -= bytes_read_from_file;
-		total_file_sent += 0;
-	}
-
-	// read the amount of printable characters that the server recognized
-	unsigned long printable_amount_n;
-	void* printable_amount_n_buff = (void*) (&printable_amount_n);
-	int notread = 0;
-	int nread = 0;
-	int totalread = 0;
-	
-	notread = sizeof(unsigned long);
-	while ( notread > 0 ) {
-		nread = read(sockfd, printable_amount_n_buff + totalread, notread);
-		// check if error occured (client closed connection?)
-		if (nread <= 0) {
-			handle_connection_termination(nread == 0); // handle the error accordingly
-			continue; // ignore this connection (doesn't update pcc_total)
-		}
-		
-		totalread += nread;
-		notread -= nread;
-	}
-	
-	unsigned long printable_amount_h = ntohl(printable_amount_n);
-	printf("# of printable characters: %lu\n", printable_amount_h);
-		
-
+	// close socket and exit
 	close(sockfd); // is socket really done here?
 	exit(0);
 }

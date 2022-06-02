@@ -28,10 +28,11 @@
 #define bool int
 #define true 1
 #define false 0
-
+#define CLIENT_TERMINATED -1
 
 /*************** GLOBAL VARIABLES ******************/
-unsigned long pcc_total[95];
+char file_data_buff[1000000] = {0};
+unsigned long pcc_total[95] = {0};
 int finished = false;
 int processing = false;
 /***************************************************/
@@ -45,18 +46,49 @@ int processing = false;
  * terminate the calling process. */
 static void print_err(char* error_message, bool terminate);
 
-/* Prints the statistics of the printable characters' across all connecions,
- * and exit the program with exit status 0*/
-static void print_stats(void);
+/* This function receives an already connected socket with its file descriptor
+ * of <sockfd>, the amount of bytes to receive named <size>, and the buffer
+ * to save the sent bytes into named <buff>
+ *
+ * Return the amount of bytes recevied on success (>=0), or `CLIENT_TERMINATED`
+ * if client terminated.
+ * Other errors may terminate the program as a whole */
+static unsigned long recv_data(int sockfd, void *buff, unsigned long size);
+
+/* This function receives an already connected socket with its file descriptor
+ * of <sockfd>, the amount of bytes to send <size>, and the source of bytes
+ * to send named <buff>, and sends all of the bytes to the server on the 
+ * other end.
+ *
+ * Return the amount of bytes sent on success (>=0), or `CLIENT_TERMINATED`
+ * if client terminated.
+ * Other errors may terminate the program as a whole */
+static unsigned long send_data(int sockfd, void *buff, unsigned long size);
+
+/* This function accepts a socket of a connection to a client named <sockfd>,
+ * the size of the file that the client is supposed to send named <file_size>,
+ * and receives all of the contents of the file until done. Througout reading
+ * the sent file, it also maintains statistics over all of the printable 
+ * characters read in the file.
+ *
+ * Return the amount of printable characters read on success (>=0), or `CLIENT_TERMINATED`
+ * if client terminated.
+ * Other errors may terminate the program as a whole */
+static unsigned long process_file(int sockfd, unsigned long file_size, unsigned long pcc_current[]);
+
+/* Prints the printable characters' statistics stored in <pcc_stats>.
+ * <pcc_total> stands for the statistics across all connecions.
+ * if <terminate> equates to <true>, it exits the program with exit status 0 */
+static void print_stats(unsigned long pcc_stats[], bool terminate);
 
 /* Given an array of statistics holding the printable characters' info
- * for a specific connection named <pcc_tmp>, update the toatl array of
+ * for a specific connection named <pcc_current>, update the toatl array of
  * statistics holding the printable characters' info across all connecions */
-static void update_total(unsigned long pcc_tmp[]);
+static void update_pcc_total(unsigned long pcc_current[]);
 
-/* returns the number of printable characters in <data_buff>, and increments each 
- * printable character's index equivalent in <pcc_tmp> */
-static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned long pcc_tmp[]);
+/* returns the number of printable characters in <file_data_buff>, and increments each 
+ * printable character's index equivalent in <pcc_current> */
+static unsigned long update_pcc_current(char file_data_buff[], unsigned long size, unsigned long pcc_current[]);
 
 /* This function is called upon receiving an EOF or a TCP error when powering
  * a syscall for receiving/sending data. Error messages are printed accordingly */
@@ -80,31 +112,109 @@ static void print_err(char* error_message, bool terminate) {
 	}
 }
 
-static void print_stats() {
-	for (unsigned int i = 0; i < 95; i++) {
-		printf("char '%c' : %lu times\n", (char)(i + 32), pcc_total[i]);
+static unsigned long recv_data(int sockfd, void *buff, unsigned long size) {
+	int notread = 0;
+	int nread = 0;
+	int totalread = 0;
+	
+	notread = size;
+	while ( notread > 0 ) {
+		nread = read(sockfd, buff + totalread, notread);
+		// check if error occured (client closed connection?)
+		if (nread <= 0) {
+			handle_connection_termination(nread == 0); // handle the error accordingly
+			goto client_error;
+		}
+		
+		totalread += nread;
+		notread -= nread;
 	}
 	
-	exit(0);
+	return totalread;
+	
+client_error:
+	return CLIENT_TERMINATED;
 }
 
-static void update_total(unsigned long pcc_tmp[]) {
+static unsigned long send_data(int sockfd, void *buff, unsigned long size) {
+	unsigned long nsent = 0;
+	unsigned long totalsent = 0;
+	unsigned long notwritten = size;
+	
+	while( notwritten > 0 ) {
+		// notwritten = how much we have left to write
+		// totalsent  = how much we've written so far
+		// nsent = how much we've written in last write() call */
+		nsent = write(sockfd,
+				buff + totalsent,
+				notwritten);
+		// check if error occured (client closed connection?)
+		if (nsent <= 0) {
+			handle_connection_termination(false);
+			goto client_error;
+		}
+
+		printf("Server: wrote %lu bytes\n", nsent);
+
+		totalsent  += nsent;
+		notwritten -= nsent;
+	}
+	
+	return totalsent;
+	
+client_error:
+	return CLIENT_TERMINATED;
+}
+
+static unsigned long process_file(int sockfd, unsigned long file_size, unsigned long pcc_current[]) {
+	unsigned long printable_chars = 0;
+	unsigned long notread_from_file = file_size;
+
+	while ( notread_from_file > 0 ) {
+
+		unsigned long notread = (notread_from_file >= 1000000) ? 1000000 : notread_from_file;
+		if ( CLIENT_TERMINATED == recv_data(sockfd, file_data_buff, notread) ) {
+			goto client_error;
+		}
+		notread_from_file -= notread;
+		
+		// process characters read from buffer
+		printable_chars += update_pcc_current(file_data_buff, notread, pcc_current);
+	}
+	
+	return printable_chars;
+	
+client_error:
+	return CLIENT_TERMINATED;
+}
+
+static void print_stats(unsigned long pcc_stats[], bool terminate) {
 	for (unsigned int i = 0; i < 95; i++) {
-		pcc_total[i] += pcc_tmp[i];
+		printf("char '%c' : %lu times\n", (char)(i + 32), pcc_stats[i]);
+	}
+	
+	if (terminate) {
+		exit(0);
 	}
 }
 
-static unsigned long update_tmp(char data_buff[], unsigned long size, unsigned long pcc_tmp[]) {
-	unsigned long printable_amount = 0;
-	
+static void update_pcc_total(unsigned long pcc_current[]) {
+	for (unsigned int i = 0; i < 95; i++) {
+		pcc_total[i] += pcc_current[i];
+	}
+}
+
+static unsigned long update_pcc_current(char file_data_buff[], unsigned long size, unsigned long pcc_current[]) {
+	unsigned long printable_chars = 0;
+
 	for (unsigned long i = 0; i < size; i++) {
-		if (data_buff[i] >= 32 && data_buff[i] <= 126) {
-			printable_amount++;
-			pcc_tmp[(int)data_buff[i] - 32]++;
+		if (file_data_buff[i] >= 32 && file_data_buff[i] <= 126) {
+			printable_chars++;
+			pcc_current[(int)file_data_buff[i] - 32]++;
 		}
 	}
 	
-	return printable_amount;
+	return printable_chars;
 }
 
 static void handle_connection_termination(bool is_ret_zero) {
@@ -123,7 +233,7 @@ static void server_sigint(int sig) {
 	if (processing) {
 		finished = true;
 	} else {
-		print_stats();
+		print_stats(pcc_total, true);
 	}
 }
 
@@ -141,8 +251,6 @@ int main(int argc, char *argv[])
 	sa_int.sa_flags = SA_RESTART;
 	if ( 0 > sigaction(SIGINT, &sa_int, 0) ) print_err("Error: Couldn't set SIG_INT handler", true);
 
-	int totalsent = -1;
-	int nsent     = -1;
 	int listenfd  = -1;
 	int connfd    = -1;
 
@@ -150,11 +258,6 @@ int main(int argc, char *argv[])
 	struct sockaddr_in my_addr;
 	struct sockaddr_in peer_addr;
 	socklen_t addrsize = sizeof(struct sockaddr_in );
-
-	// datastructure
-	unsigned long pcc_tmp[95];
-
-	
 
 	// parse args
 	if (argc != 2) {
@@ -164,9 +267,7 @@ int main(int argc, char *argv[])
 
 	unsigned short port = atoi(argv[1]); // transfer to 16 bit
 
-	// fetch connections
-	char data_buff[1000000];
-
+	// create listening socket
 	if ( -1 == (listenfd = socket( AF_INET, SOCK_STREAM, 0 )) ) {
 		print_err("Error: Couldn't open a socket", true);
 	}
@@ -196,21 +297,20 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	unsigned long pcc_current[95];
+	
 	while( !finished ) {
 		
-		
+		memset(pcc_current, 0, 95 * sizeof(unsigned long));
+
 		// Accept a connection.
 		// Can use NULL in 2nd and 3rd arguments
 		// but we want to print the client socket details
-		connfd = accept( listenfd,
-				(struct sockaddr*) &peer_addr,
-				&addrsize);
+		connfd = accept(listenfd, (struct sockaddr*) &peer_addr, &addrsize);
 		processing = true;
 
-		if( connfd < 0 )
-		{
-			printf("\n Error : Accept Failed. %s \n", strerror(errno));
-			return 1;
+		if( connfd < 0 ) {
+			print_err("Error: Couldn't create new connection with client", true);
 		}
 
 		getsockname(connfd, (struct sockaddr*) &my_addr,   &addrsize);
@@ -223,93 +323,39 @@ int main(int argc, char *argv[])
 				inet_ntoa( my_addr.sin_addr   ),
 				ntohs(     my_addr.sin_port   ) );
 
-		// read the amount of characters that should be sent
-		unsigned long bytes_to_read_n;
-		void* bytes_to_read_buff = (void*) (&bytes_to_read_n);
-		unsigned long notread = 0;
-		unsigned long nread = 0;
-		unsigned long totalread = 0;
-		
-		notread = sizeof(unsigned long);
-		while ( notread > 0 ) {
-		
-			nread = read(connfd, bytes_to_read_buff + totalread, notread);
-			// check if error occured (client closed connection?)
-			if (nread <= 0) {
-				handle_connection_termination(nread == 0); // handle the error accordingly
-				continue; // ignore this connection (doesn't update pcc_total)
-			}
-			
-			totalread += nread;
-			notread -= nread;
+		// read the amount of characters that the file being sent will hold
+		unsigned long file_size_n;
+		if ( CLIENT_TERMINATED == recv_data(connfd, &file_size_n, sizeof(unsigned long)) ) {
+			processing = false;
+			continue;
 		}
-
-		unsigned long bytes_to_read_h = ntohl(bytes_to_read_n);
+		unsigned long file_size_h = ntohl(file_size_n);
 		
-		// read the whole file
-		unsigned long printable_amount = 0;
-		int notread_from_file = bytes_to_read_h;
-
-		
-		while ( notread_from_file > 0 ) {
-			nread = 0;
-			totalread = 0;
-			
-			notread = (notread_from_file >= 1000000) ? 1000000 : notread_from_file;
-			while ( notread > 0 ) {
-				nread = read(connfd, data_buff + totalread, notread);
-				// check if error occured (client closed connection?)
-				if (nread <= 0) {
-					handle_connection_termination(nread == 0);
-				}
-				
-				totalread += nread;
-				notread -= nread;
-			}
-			
-			notread_from_file -= totalread;
-			
-			// process characters read from buffer
-			printable_amount += update_tmp(data_buff, totalread, pcc_tmp);
-		}
-
-
-		// write time
-		nsent = 0;
-		totalsent = 0;
-		int notwritten = sizeof(unsigned long);
-		printable_amount = htonl(printable_amount);
-		void* printable_amount_buff = (void*) (&printable_amount);
-
-		// keep looping until nothing left to write
-		while( notwritten > 0 )
-		{
-			// notwritten = how much we have left to write
-			// totalsent  = how much we've written so far
-			// nsent = how much we've written in last write() call */
-			nsent = write(connfd,
-					printable_amount_buff + totalsent,
-					notwritten);
-			// check if error occured (client closed connection?)
-			if (nsent <= 0) {
-				handle_connection_termination(false);
-			}
-
-			printf("Server: wrote %d bytes\n", nsent);
-
-			totalsent  += nsent;
-			notwritten -= nsent;
+		// read the file sent and fetch the amount of printable characters in that file
+		unsigned long printable_chars_h = 0;
+		if ( CLIENT_TERMINATED == (printable_chars_h = process_file(connfd, file_size_h, pcc_current)) ) {
+			processing = false;
+			continue;
 		}
 		
-		// update pcc_total
-		update_total(pcc_tmp);
+		// send the amount of printable characters in the file sent to the client
+		unsigned long printable_chars_n = htonl(printable_chars_h);
+		if ( CLIENT_TERMINATED == send_data(connfd, &printable_chars_n, sizeof(unsigned long)) ) {
+			processing = false;
+			continue;
+		}
 
 		// close socket
 		close(connfd);
+		
+		// update pcc_total
+		update_pcc_total(pcc_current);
+		
+		// turn off the flag of processing
 		processing = false;
 	}
 	
-	print_stats(); // exits with 0 status
+	print_stats(pcc_total, true); // exits with 0 status
 }
 
 
