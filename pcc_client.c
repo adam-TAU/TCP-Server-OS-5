@@ -134,7 +134,7 @@ static void send_file(int sockfd, int file_fd) {
 		
 		bytes_read_from_file = read(file_fd, data_buff, 1000000);
 		if ( bytes_read_from_file < 0 ) {
-			// handle error
+			print_err("Error: Couldn't read from file", true);
 		}
 	
 		send_data(sockfd, data_buff, bytes_read_from_file);		
@@ -171,7 +171,6 @@ int main(int argc, char *argv[]) {
 	int fd;
 	if ( -1 == (fd = open(file_path, O_RDONLY)) ) {
 		print_err("Error: Couldn't open the file given as a parameter", true);
-		// handle error
 	}
 
 	// create tcp connection to server on port
@@ -199,7 +198,7 @@ int main(int argc, char *argv[]) {
 		print_err("Error: Couldn't connect to server", true);
 	}
 
-	// print socket details again
+	// OPTIONAL: TODO: REMOVE
 	getsockname(sockfd, (struct sockaddr*) &my_addr,   &addrsize);
 	getpeername(sockfd, (struct sockaddr*) &peer_addr, &addrsize);
 	printf("Client: Connected. \n"

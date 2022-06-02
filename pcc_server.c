@@ -29,6 +29,7 @@
 #define true 1
 #define false 0
 #define CLIENT_TERMINATED -1
+#define IS_PRINTABLE(x) ((x <= 126) && (x >= 32))
 
 /*************** GLOBAL VARIABLES ******************/
 char file_data_buff[1000000] = {0};
@@ -74,7 +75,7 @@ static unsigned long send_data(int sockfd, void *buff, unsigned long size);
  * Return the amount of printable characters read on success (>=0), or `CLIENT_TERMINATED`
  * if client terminated.
  * Other errors may terminate the program as a whole */
-static unsigned long process_file(int sockfd, unsigned long file_size, unsigned long pcc_current[]);
+static unsigned long receive_file(int sockfd, unsigned long file_size, unsigned long pcc_current[]);
 
 /* Prints the printable characters' statistics stored in <pcc_stats>.
  * <pcc_total> stands for the statistics across all connecions.
@@ -122,8 +123,10 @@ static unsigned long recv_data(int sockfd, void *buff, unsigned long size) {
 		nread = read(sockfd, buff + totalread, notread);
 		// check if error occured (client closed connection?)
 		if (nread <= 0) {
-			handle_connection_termination(nread == 0); // handle the error accordingly
-			goto client_error;
+			if (errno != EINTR && nread != 0) { // if the error is EINTR, simply ignore it (SIG_INT handler)
+				handle_connection_termination(nread == 0); // handle the error accordingly
+				goto client_error;
+			}
 		}
 		
 		totalread += nread;
@@ -150,10 +153,13 @@ static unsigned long send_data(int sockfd, void *buff, unsigned long size) {
 				notwritten);
 		// check if error occured (client closed connection?)
 		if (nsent <= 0) {
-			handle_connection_termination(false);
-			goto client_error;
+			if (errno != EINTR && nsent != 0) { // if the error is EINTR, simply ignore it (SIG_INT handler)
+				handle_connection_termination(false);
+				goto client_error;
+			}
 		}
 
+		// OPTIONAL: TODO: REMOVE
 		printf("Server: wrote %lu bytes\n", nsent);
 
 		totalsent  += nsent;
@@ -166,7 +172,7 @@ client_error:
 	return CLIENT_TERMINATED;
 }
 
-static unsigned long process_file(int sockfd, unsigned long file_size, unsigned long pcc_current[]) {
+static unsigned long receive_file(int sockfd, unsigned long file_size, unsigned long pcc_current[]) {
 	unsigned long printable_chars = 0;
 	unsigned long notread_from_file = file_size;
 
@@ -208,7 +214,7 @@ static unsigned long update_pcc_current(char file_data_buff[], unsigned long siz
 	unsigned long printable_chars = 0;
 
 	for (unsigned long i = 0; i < size; i++) {
-		if (file_data_buff[i] >= 32 && file_data_buff[i] <= 126) {
+		if (IS_PRINTABLE(file_data_buff[i])) {
 			printable_chars++;
 			pcc_current[(int)file_data_buff[i] - 32]++;
 		}
@@ -243,22 +249,21 @@ static void server_sigint(int sig) {
 
 // MINIMAL ERROR HANDLING FOR EASE OF READING
 
-int main(int argc, char *argv[])
-{
-	// connecting signal handler
-	struct sigaction sa_int;
-	sa_int.sa_handler = server_sigint; // make the handling of SIGINT default again (I.E. terminate upon a SIGINT)
-	sa_int.sa_flags = SA_RESTART;
-	if ( 0 > sigaction(SIGINT, &sa_int, 0) ) print_err("Error: Couldn't set SIG_INT handler", true);
+int main(int argc, char *argv[]) {
 
 	int listenfd  = -1;
 	int connfd    = -1;
-
+	
 	struct sockaddr_in serv_addr;
 	struct sockaddr_in my_addr;
 	struct sockaddr_in peer_addr;
 	socklen_t addrsize = sizeof(struct sockaddr_in );
-
+	
+	// connecting signal handler
+	struct sigaction sa_int;
+	sa_int.sa_handler = server_sigint; // make the handling of SIGINT default again (I.E. terminate upon a SIGINT)
+	if ( 0 > sigaction(SIGINT, &sa_int, 0) ) print_err("Error: Couldn't set SIG_INT handler", true);
+	
 	// parse args
 	if (argc != 2) {
 		errno = EINVAL;
@@ -306,13 +311,15 @@ int main(int argc, char *argv[])
 		// Accept a connection.
 		// Can use NULL in 2nd and 3rd arguments
 		// but we want to print the client socket details
-		connfd = accept(listenfd, (struct sockaddr*) &peer_addr, &addrsize);
-		processing = true;
-
-		if( connfd < 0 ) {
-			print_err("Error: Couldn't create new connection with client", true);
+		if ( -1 == (connfd = accept(listenfd, (struct sockaddr*) &peer_addr, &addrsize)) ) {
+			if (errno == EINTR) { // caused by our signal handler (every handler on linux has SA_RESTART turned on by default)
+				break; // exit loop
+			} else { // if it's a non-sigint-related error
+				print_err("Error: Couldn't accept a connection on the port we are listening", true);
+			}	
 		}
-
+		
+		// OPTIONAL: TODO: REMOVE
 		getsockname(connfd, (struct sockaddr*) &my_addr,   &addrsize);
 		getpeername(connfd, (struct sockaddr*) &peer_addr, &addrsize);
 		printf( "Server: Client connected.\n"
@@ -322,6 +329,9 @@ int main(int argc, char *argv[])
 				ntohs(     peer_addr.sin_port ),
 				inet_ntoa( my_addr.sin_addr   ),
 				ntohs(     my_addr.sin_port   ) );
+		
+		// signal to other function calls that we started processing
+		processing = true;
 
 		// read the amount of characters that the file being sent will hold
 		unsigned long file_size_n;
@@ -333,7 +343,7 @@ int main(int argc, char *argv[])
 		
 		// read the file sent and fetch the amount of printable characters in that file
 		unsigned long printable_chars_h = 0;
-		if ( CLIENT_TERMINATED == (printable_chars_h = process_file(connfd, file_size_h, pcc_current)) ) {
+		if ( CLIENT_TERMINATED == (printable_chars_h = receive_file(connfd, file_size_h, pcc_current)) ) {
 			processing = false;
 			continue;
 		}
@@ -346,7 +356,9 @@ int main(int argc, char *argv[])
 		}
 
 		// close socket
-		close(connfd);
+		if (-1 == close(connfd)) {
+			if (errno != EINTR) print_err("Error: Couldn't close a socket of a connection", true); 
+		}
 		
 		// update pcc_total
 		update_pcc_total(pcc_current);
@@ -357,7 +369,3 @@ int main(int argc, char *argv[])
 	
 	print_stats(pcc_total, true); // exits with 0 status
 }
-
-
-
-
