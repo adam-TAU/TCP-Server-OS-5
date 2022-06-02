@@ -290,9 +290,7 @@ int main(int argc, char *argv[]) {
 		print_err("Error: Couldn't set socket options", true);
 	}
 
-	if( 0 != bind( listenfd,
-				(struct sockaddr*) &serv_addr,
-				addrsize ) ) {
+	if( 0 != bind( listenfd, (struct sockaddr*) &serv_addr,	addrsize ) ) {
 		printf("\n Error : Bind Failed. %s \n", strerror(errno));
 		return 1;
 	}
