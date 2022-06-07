@@ -107,29 +107,29 @@ static void send_data(int sockfd, void *buff, unsigned long size) {
 }
 
 static void send_file(int sockfd, int file_fd) {
+	unsigned long number_bytes_send_h = -1; // the size of the file in bytes and host-endiann-ed
 
 	// send the amount of bytes that the file that we send holds
 	struct stat sb;
-	if ( -1 == fstat(file_fd, &sb) ) {
+	if ( -1 == fstat(file_fd, &sb) ) { // if the stat of the file failed
 		print_err("Error: Couldn't `stat` the supplied file", true);
+	} else { // if the stat of the file succeeded, extract the file size, and send it over the connection
+		number_bytes_send_h = sb.st_size; // host-endiann-ed size
+		unsigned long number_bytes_send_n = htonl(number_bytes_send_h); // network-endiann-ed size
+		send_data(sockfd, &number_bytes_send_n, sizeof(unsigned long)); // sending the size
 	}
-	
-	unsigned long number_bytes_send_h = sb.st_size;
-	unsigned long number_bytes_send_n = htonl(number_bytes_send_h);
-	void* number_bytes_send_n_buff = (void*) (&number_bytes_send_n);
-	send_data(sockfd, number_bytes_send_n_buff, sizeof(unsigned long));
 	
 	// send the file in buffers to the server
 	char data_buff[1000000]; // 1MB buffer
-	unsigned long bytes_read_from_file = 0;
-	unsigned long file_notread = number_bytes_send_h;
+	unsigned long bytes_read_from_file = 0; // the amount of bytes we've currently read from the file
+	unsigned long file_notread = number_bytes_send_h; // the amount of bytes in the file that we still need to send 
 	
-	while( file_notread > 0 ) {
+	while ( file_notread > 0 ) {
 		
-		bytes_read_from_file = read(file_fd, data_buff, 1000000);
-		if ( bytes_read_from_file < 0 ) {
+		bytes_read_from_file = read(file_fd, data_buff, 1000000); // read the next 1MB
+		if ( bytes_read_from_file < 0 ) { // if the read failed
 			print_err("Error: Couldn't read from file", true);
-		} else {
+		} else { // if the read succeeded, send the 1MB buffer and advance
 			send_data(sockfd, data_buff, bytes_read_from_file);		
 			file_notread -= bytes_read_from_file;
 		}
@@ -144,13 +144,15 @@ static void send_file(int sockfd, int file_fd) {
 /*************** MAIN ******************/
 int main(int argc, char *argv[]) {
 	
+	
+	int  sockfd = -1; // our connected socket fd
+	int file_fd = -1; // our file fd
 	struct sockaddr_in serv_addr; // where we Want to get to
 	struct sockaddr_in my_addr;   // where we actually connected through 
 	struct sockaddr_in peer_addr; // where we actually connected to
 	socklen_t addrsize = sizeof(struct sockaddr_in );
 	
-	int  sockfd     = -1;
-
+	// validating the arguments amount
 	if (argc != 4) {
 		errno = EINVAL;
 		print_err("Error: Not enough arguments passed", true);
@@ -162,13 +164,12 @@ int main(int argc, char *argv[]) {
 	char* file_path = argv[3]; // try opening the file and return an error accordingly 
 
 	// open dedicated file
-	int fd;
-	if ( -1 == (fd = open(file_path, O_RDONLY)) ) {
+	if ( -1 == (file_fd = open(file_path, O_RDONLY)) ) {
 		print_err("Error: Couldn't open the file given as a parameter", true);
 	}
 
 	// create tcp connection to server on port
-	if( (sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	if( 0 > (sockfd = socket(AF_INET, SOCK_STREAM, 0)) ) {
 		print_err("Error: Couldn't create a socket", true);
 	}
 
@@ -180,13 +181,15 @@ int main(int argc, char *argv[]) {
 			inet_ntoa((my_addr.sin_addr)),
 			ntohs(my_addr.sin_port));
 
+
+
+	printf("Client: connecting...\n");
+	// configuring the address of our listening socket
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_port = htons(port); // Note: htons for endiannes
 	serv_addr.sin_addr.s_addr = inet_addr(ip_addr); // hardcoded...
-
-	printf("Client: connecting...\n");
-	// Note: what about the client port number?
+	
 	// connect socket to the target address
 	if( connect(sockfd,	(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)	{
 		print_err("Error: Couldn't connect to server", true);
@@ -202,7 +205,7 @@ int main(int argc, char *argv[]) {
 			inet_ntoa((peer_addr.sin_addr)),  ntohs(peer_addr.sin_port));
 	
 	// send the bytes from the file
-	send_file(sockfd, fd);
+	send_file(sockfd, file_fd);
 
 	// read the amount of printable characters that the server recognized in the file
 	unsigned long printable_chars_n;
