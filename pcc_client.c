@@ -178,7 +178,7 @@ int main(int argc, char *argv[]) {
 	serv_addr.sin_addr.s_addr = inet_addr(ip_addr); // hardcoded...
 	
 	// connect socket to the target address
-	if( connect(sockfd,	(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)	{
+	if( connect(sockfd, (struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)	{
 		print_err("Error: Couldn't connect to server", true);
 	}
 	
