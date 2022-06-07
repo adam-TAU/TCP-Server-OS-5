@@ -70,52 +70,46 @@ static void print_err(char* error_message, bool terminate) {
 }
 
 static void recv_data(int sockfd, void *buff, unsigned long size) {
-	int notread = 0;
+	int notread = size;
 	int nread = 0;
 	int totalread = 0;
 	
-	notread = size;
 	while ( notread > 0 ) {
-		nread = read(sockfd, buff + totalread, notread);
-		// check if error occured (client closed connection?)
-		if (nread < 0) {
+	
+		if ( 0 > (nread = read(sockfd, buff + totalread, notread)) ) { // if an error occured reading data
 			print_err("Error: Couldn't read from socket", true);
+		} else { // if no error occured when reading the data, advance
+			totalread += nread;
+			notread -= nread;
 		}
 		
-		totalread += nread;
-		notread -= nread;
 	}
 }
 
 static void send_data(int sockfd, void *buff, unsigned long size) {
-	unsigned long nsent = 0;
-	unsigned long totalsent = 0;
-	unsigned long notwritten = size;
+	unsigned long nsent = 0; // how much we've written in last write() call
+	unsigned long totalsent = 0; // how much we've written so far
+	unsigned long notwritten = size; // how much we have left to write
 	
 	while( notwritten > 0 ) {
-		// notwritten = how much we have left to write
-		// totalsent  = how much we've written so far
-		// nsent = how much we've written in last write() call */
-		nsent = write(sockfd,
-				buff + totalsent,
-				notwritten);
-		// check if error occured (client closed connection?)
-		if (nsent < 0) {
+	
+		if ( 0 > (nsent = write(sockfd, buff + totalsent,	notwritten)) ) { // if an error occurred sending data
 			print_err("Error: Couldn't send data through socket", true);
+		} else { // if no error occured when sending the data, advance
+
+			printf("Server: wrote %lu bytes\n", nsent);
+
+			totalsent  += nsent;
+			notwritten -= nsent;
 		}
-
-		printf("Server: wrote %lu bytes\n", nsent);
-
-		totalsent  += nsent;
-		notwritten -= nsent;
+		
 	}
 }
 
 static void send_file(int sockfd, int file_fd) {
 
+	// send the amount of bytes that the file that we send holds
 	struct stat sb;
-
-	// send the amount of bytes we will send
 	if ( -1 == fstat(file_fd, &sb) ) {
 		print_err("Error: Couldn't `stat` the supplied file", true);
 	}
@@ -125,7 +119,7 @@ static void send_file(int sockfd, int file_fd) {
 	void* number_bytes_send_n_buff = (void*) (&number_bytes_send_n);
 	send_data(sockfd, number_bytes_send_n_buff, sizeof(unsigned long));
 	
-	
+	// send the file in buffers to the server
 	char data_buff[1000000]; // 1MB buffer
 	unsigned long bytes_read_from_file = 0;
 	unsigned long file_notread = number_bytes_send_h;
@@ -135,10 +129,10 @@ static void send_file(int sockfd, int file_fd) {
 		bytes_read_from_file = read(file_fd, data_buff, 1000000);
 		if ( bytes_read_from_file < 0 ) {
 			print_err("Error: Couldn't read from file", true);
+		} else {
+			send_data(sockfd, data_buff, bytes_read_from_file);		
+			file_notread -= bytes_read_from_file;
 		}
-	
-		send_data(sockfd, data_buff, bytes_read_from_file);		
-		file_notread -= bytes_read_from_file;
 	}
 }
 /************************************************************/
