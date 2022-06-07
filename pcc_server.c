@@ -31,7 +31,6 @@
 char file_data_buff[1000000] = {0};
 uint64_t pcc_total[CHARS_RANGE] = {0};
 int finished = false;
-int processing = false;
 socklen_t addrsize = sizeof(struct sockaddr_in); // the size for sockaddr_in
 int connfd = -1; // stores the fd for the connected socket
 /***************************************************/
@@ -343,7 +342,6 @@ static void process_connections(int listenfd) {
 		uint64_t file_size_n;
 		if ( CLIENT_TERMINATED == recv_data(connfd, &file_size_n, sizeof(uint64_t)) ) {
 			close_safe(connfd);
-			processing = false;
 			continue;
 		}
 		uint64_t file_size_h = ntohl(file_size_n);
@@ -352,7 +350,6 @@ static void process_connections(int listenfd) {
 		uint64_t printable_chars_h = 0;
 		if ( CLIENT_TERMINATED == (printable_chars_h = receive_and_process_file(connfd, file_size_h, pcc_current)) ) {
 			close_safe(connfd);
-			processing = false;
 			continue;
 		}
 		
@@ -360,7 +357,6 @@ static void process_connections(int listenfd) {
 		uint64_t printable_chars_n = htonl(printable_chars_h);
 		if ( CLIENT_TERMINATED == send_data(connfd, &printable_chars_n, sizeof(uint64_t)) ) {
 			close_safe(connfd);
-			processing = false;
 			continue;
 		}
 
