@@ -24,11 +24,12 @@
 #define true 1
 #define false 0
 #define CLIENT_TERMINATED -1
+#define CHARS_RANGE 95
 #define IS_PRINTABLE(x) ((x <= 126) && (x >= 32))
 
 /*************** GLOBAL VARIABLES ******************/
 char file_data_buff[1000000] = {0};
-unsigned long pcc_total[95] = {0};
+unsigned long pcc_total[CHARS_RANGE] = {0};
 int finished = false;
 int processing = false;
 socklen_t addrsize = sizeof(struct sockaddr_in); // the size for sockaddr_in
@@ -224,10 +225,7 @@ static unsigned long send_data(int sockfd, void *buff, unsigned long size) {
 				goto client_error; // this part is reached only if the error was a TCP error or an unexpected connection termination
 			}
 		} else { // if writing succeeded, advance
-
-			// OPTIONAL: TODO: REMOVE
-			printf("Server: wrote %lu bytes\n", nsent);
-
+		
 			totalsent  += nsent;
 			notwritten -= nsent;
 		}
@@ -278,7 +276,7 @@ client_error:
 
 static void print_stats(unsigned long pcc_stats[], bool terminate) {
 	// printing the stats
-	for (unsigned int i = 0; i < 95; i++) {
+	for (unsigned int i = 0; i < CHARS_RANGE; i++) {
 		printf("char '%c' : %lu times\n", (char)(i + 32), pcc_stats[i]);
 	}
 	
@@ -290,7 +288,7 @@ static void print_stats(unsigned long pcc_stats[], bool terminate) {
 
 static void update_pcc_total(unsigned long pcc_current[]) { 
 	// adding the the current statistics with the total statistics
-	for (unsigned int i = 0; i < 95; i++) {
+	for (unsigned int i = 0; i < CHARS_RANGE; i++) {
 		pcc_total[i] += pcc_current[i];
 	}
 }
@@ -322,37 +320,24 @@ static unsigned long update_pcc_current(char file_data_buff[], unsigned long siz
 ************************* MAIN MECHANISM *****************************
 **********************************************************************/
 static void process_connections(int listenfd) {
-	struct sockaddr_in my_addr; // address of our side of the connection
-	struct sockaddr_in peer_addr; // address of the other side of the connection
-	unsigned long pcc_current[95]; // will hold the statistics for the current connection that is being processed
+	unsigned long pcc_current[CHARS_RANGE]; // will hold the statistics for the current connection that is being processed
 	
 	
 	while( !finished ) { // accepting connections until SIGINT arrives or an unexpected error terminated the program
 		
 		// zero-ing out the recent connection-based statistics
-		memset(pcc_current, 0, 95 * sizeof(unsigned long));
+		memset(pcc_current, 0, CHARS_RANGE * sizeof(unsigned long));
 		
 		// Accept a connection.
 		// Can use NULL in 2nd and 3rd arguments
 		// but we want to print the client socket details
-		if ( -1 == (connfd = accept(listenfd, (struct sockaddr*) &peer_addr, &addrsize)) ) {
+		if ( -1 == (connfd = accept(listenfd, NULL, NULL)) ) {
 			if (errno == EINTR) { // must be caused by our signal handler (every handler on linux has SA_RESTART turned on by default)
 				break; // exit loop
 			} else { // if it's a non-sigint-related error
 				print_err("Error: Couldn't accept a connection on the port we are listening", true);
 			}	
 		}
-		
-		// OPTIONAL: TODO: REMOVE
-		getsockname(connfd, (struct sockaddr*) &my_addr,   &addrsize);
-		getpeername(connfd, (struct sockaddr*) &peer_addr, &addrsize);
-		printf( "Server: Client connected.\n"
-				"\t\tClient IP: %s Client Port: %d\n"
-				"\t\tServer IP: %s Server Port: %d\n",
-				inet_ntoa( peer_addr.sin_addr ),
-				ntohs(     peer_addr.sin_port ),
-				inet_ntoa( my_addr.sin_addr   ),
-				ntohs(     my_addr.sin_port   ) );
 
 		// read the amount of characters that the file being sent will hold
 		unsigned long file_size_n;

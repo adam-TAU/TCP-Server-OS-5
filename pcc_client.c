@@ -97,8 +97,6 @@ static void send_data(int sockfd, void *buff, unsigned long size) {
 			print_err("Error: Couldn't send data through socket", true);
 		} else { // if no error occured when sending the data, advance
 
-			printf("Server: wrote %lu bytes\n", nsent);
-
 			totalsent  += nsent;
 			notwritten -= nsent;
 		}
@@ -148,9 +146,6 @@ int main(int argc, char *argv[]) {
 	int  sockfd = -1; // our connected socket fd
 	int file_fd = -1; // our file fd
 	struct sockaddr_in serv_addr; // where we Want to get to
-	struct sockaddr_in my_addr;   // where we actually connected through 
-	struct sockaddr_in peer_addr; // where we actually connected to
-	socklen_t addrsize = sizeof(struct sockaddr_in );
 	
 	// validating the arguments amount
 	if (argc != 4) {
@@ -173,17 +168,6 @@ int main(int argc, char *argv[]) {
 		print_err("Error: Couldn't create a socket", true);
 	}
 
-	// print socket details
-	getsockname(sockfd,
-			(struct sockaddr*) &my_addr,
-			&addrsize);
-	printf("Client: socket created %s:%d\n",
-			inet_ntoa((my_addr.sin_addr)),
-			ntohs(my_addr.sin_port));
-
-
-
-	printf("Client: connecting...\n");
 	// configuring the address of our listening socket
 	memset(&serv_addr, 0, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
@@ -194,15 +178,6 @@ int main(int argc, char *argv[]) {
 	if( connect(sockfd,	(struct sockaddr*) &serv_addr, sizeof(serv_addr)) < 0)	{
 		print_err("Error: Couldn't connect to server", true);
 	}
-
-	// OPTIONAL: TODO: REMOVE
-	getsockname(sockfd, (struct sockaddr*) &my_addr,   &addrsize);
-	getpeername(sockfd, (struct sockaddr*) &peer_addr, &addrsize);
-	printf("Client: Connected. \n"
-			"\t\tSource IP: %s Source Port: %d\n"
-			"\t\tTarget IP: %s Target Port: %d\n",
-			inet_ntoa((my_addr.sin_addr)),    ntohs(my_addr.sin_port),
-			inet_ntoa((peer_addr.sin_addr)),  ntohs(peer_addr.sin_port));
 	
 	// send the bytes from the file
 	send_file(sockfd, file_fd);
