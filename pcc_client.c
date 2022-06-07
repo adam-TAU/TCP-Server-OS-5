@@ -23,7 +23,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <errno.h>
-
+#include <endian.h>
 
 #define bool int
 #define true 1
@@ -51,7 +51,7 @@ static void send_data(int sockfd, void *buff, uint64_t size);
  * of <sockfd>, and a file descriptor named <file_fd> of the file we want to send
  * over the socket, and sends all of the contents of the file at <file_fd> over
  * the socket */
-static void send_file(int sockfd, int file_fd);
+static uint64_t send_file(int sockfd, int file_fd);
 /**************************************************/
 
 
@@ -104,7 +104,7 @@ static void send_data(int sockfd, void *buff, uint64_t size) {
 	}
 }
 
-static void send_file(int sockfd, int file_fd) {
+static uint64_t send_file(int sockfd, int file_fd) {
 	uint64_t number_bytes_send_h = -1; // the size of the file in bytes and host-endiann-ed
 
 	// send the amount of bytes that the file that we send holds
@@ -113,7 +113,7 @@ static void send_file(int sockfd, int file_fd) {
 		print_err("Error: Couldn't `stat` the supplied file", true);
 	} else { // if the stat of the file succeeded, extract the file size, and send it over the connection
 		number_bytes_send_h = sb.st_size; // host-endiann-ed size
-		uint64_t number_bytes_send_n = htonl(number_bytes_send_h); // network-endiann-ed size
+		uint64_t number_bytes_send_n = be64toh(number_bytes_send_h); // big-endiann-ed size
 		send_data(sockfd, &number_bytes_send_n, sizeof(uint64_t)); // sending the size
 	}
 	
@@ -132,6 +132,9 @@ static void send_file(int sockfd, int file_fd) {
 			file_notread -= bytes_read_from_file;
 		}
 	}
+	
+	// return the file size
+	return number_bytes_send_h;
 }
 /************************************************************/
 
@@ -180,15 +183,20 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// send the bytes from the file
-	send_file(sockfd, file_fd);
+	if ( send_file(sockfd, file_fd) > 0 ) { // if the file size is larger than zero the server should respond
 
-	// read the amount of printable characters that the server recognized in the file
-	uint64_t printable_chars_n;
-	recv_data(sockfd, &printable_chars_n, sizeof(uint64_t));
-	uint64_t printable_chars_h = ntohl(printable_chars_n);
+		// read the amount of printable characters that the server recognized in the file
+		uint64_t printable_chars_n;
+		recv_data(sockfd, &printable_chars_n, sizeof(uint64_t));
+		uint64_t printable_chars_h = be64toh(printable_chars_n); // big endian to host
 	
-	// print the amount of printable characters in the supplied file
-	printf("# of printable characters: %lu\n", printable_chars_h);
+		// print the amount of printable characters in the supplied file
+		printf("# of printable characters: %lu\n", printable_chars_h);
+		
+	} else { // if the file size is zero, nothing was sent, hence 0 printable characters
+		// print the amount of printable characters in the supplied file
+		printf("# of printable characters: %lu\n", (uint64_t)0);
+	}
 		
 	// close socket and exit
 	close(sockfd);

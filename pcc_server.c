@@ -19,6 +19,7 @@
 #include <time.h>
 #include <assert.h>
 #include <signal.h>
+#include <endian.h>
 
 #define bool int
 #define true 1
@@ -344,7 +345,7 @@ static void process_connections(int listenfd) {
 			close_safe(connfd);
 			continue;
 		}
-		uint64_t file_size_h = ntohl(file_size_n);
+		uint64_t file_size_h = be64toh(file_size_n);
 		
 		// read the file sent and fetch the amount of printable characters in that file
 		uint64_t printable_chars_h = 0;
@@ -354,7 +355,7 @@ static void process_connections(int listenfd) {
 		}
 		
 		// send the amount of printable characters in the file sent to the client
-		uint64_t printable_chars_n = htonl(printable_chars_h);
+		uint64_t printable_chars_n = htobe64(printable_chars_h);
 		if ( CLIENT_TERMINATED == send_data(connfd, &printable_chars_n, sizeof(uint64_t)) ) {
 			close_safe(connfd);
 			continue;
