@@ -32,6 +32,7 @@ unsigned long pcc_total[95] = {0};
 int finished = false;
 int processing = false;
 socklen_t addrsize = sizeof(struct sockaddr_in); // the size for sockaddr_in
+int connfd = -1; // stores the fd for the connected socket
 /***************************************************/
 
 
@@ -49,7 +50,7 @@ static void print_err(char* error_message, bool terminate);
 static void handle_connection_termination(bool is_ret_zero);
 
 /* close connection fd safely */
-static void close_safe(int connfd);
+static void close_safe(int sockfd);
 
 /* Sets the signal handler of SIGINT to be our `server_sigint` function */
 static void set_sigint_handler(void);
@@ -147,8 +148,8 @@ static void handle_connection_termination(bool is_ret_zero) {
 	}
 }
 
-static void close_safe(int connfd) {
-	if (-1 == close(connfd)) {
+static void close_safe(int sockfd) {
+	if (-1 == close(sockfd)) {
 		if (errno != EINTR) print_err("Error: Couldn't close a socket of a connection", true); 
 	}
 }
@@ -156,14 +157,17 @@ static void close_safe(int connfd) {
 static void set_sigint_handler(void) {
 	struct sigaction sa_int;
 	sa_int.sa_handler = server_sigint; // make the handling of SIGINT default again (I.E. terminate upon a SIGINT)
-	if ( 0 > sigaction(SIGINT, &sa_int, 0) ) print_err("Error: Couldn't set SIG_INT handler", true);
+	if ( 0 > sigaction(SIGINT, &sa_int, 0) ) {
+		print_err("Error: Couldn't set SIG_INT handler", true);
+	}
 }
 
 static void server_sigint(int sig) {
-	if (processing) {
-		finished = true;
-	} else {
+
+	if (connfd == -1) { // if no client is currently being processed, simply terminate the program
 		print_stats(pcc_total, true);
+	} else { // if there is a client being processed, simply signal to the server to not accept any new connections
+		finished = true; 
 	}
 }
 /*************************************************************************/
@@ -320,7 +324,6 @@ static unsigned long update_pcc_current(char file_data_buff[], unsigned long siz
 static void process_connections(int listenfd) {
 	struct sockaddr_in my_addr; // address of our side of the connection
 	struct sockaddr_in peer_addr; // address of the other side of the connection
-	int connfd = -1; // stores the fd for the connected socket
 	unsigned long pcc_current[95]; // will hold the statistics for the current connection that is being processed
 	
 	
@@ -350,9 +353,6 @@ static void process_connections(int listenfd) {
 				ntohs(     peer_addr.sin_port ),
 				inet_ntoa( my_addr.sin_addr   ),
 				ntohs(     my_addr.sin_port   ) );
-		
-		// signal to other function calls that we started processing
-		processing = true;
 
 		// read the amount of characters that the file being sent will hold
 		unsigned long file_size_n;
@@ -383,8 +383,8 @@ static void process_connections(int listenfd) {
 		update_pcc_total(pcc_current);
 		close_safe(connfd);
 		
-		// turn off the flag of processing
-		processing = false;
+		// signal to the handler that no client is currently being processed
+		connfd = -1;
 	}
 }
 /**********************************************************************/
