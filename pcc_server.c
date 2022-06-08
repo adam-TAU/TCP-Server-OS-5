@@ -183,10 +183,11 @@ static void server_sigint(int sig) {
 ************************* COMMUNICATION HELPERS ****************************
 ****************************************************************************/
 static uint64_t recv_data(int sockfd, void *buff, uint64_t size) {
-	int notread = size; // how much we have left to read
-	int nread = 0; // how much we've read so far
-	int totalread = 0; // how much we've written in last read() call
+	uint64_t notread = size; // how much we have left to read
+	uint64_t nread = 0; // how much we've read so far
+	uint64_t totalread = 0; // how much we've written in last read() call
 	
+	printf("to read: %lu\n", notread);
 	while ( notread > 0 ) {
 
 		if ( 0 >= (nread = read(sockfd, buff + totalread, notread)) ) {

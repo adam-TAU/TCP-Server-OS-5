@@ -70,9 +70,9 @@ static void print_err(char* error_message, bool terminate) {
 }
 
 static void recv_data(int sockfd, void *buff, uint64_t size) {
-	int notread = size;
-	int nread = 0;
-	int totalread = 0;
+	uint64_t notread = size;
+	uint64_t nread = 0;
+	uint64_t totalread = 0;
 	
 	while ( notread > 0 ) {
 	
