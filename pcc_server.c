@@ -138,7 +138,8 @@ static void print_err(char* error_message, bool terminate) {
 }
 
 static void handle_connection_termination(bool is_ret_zero) {
-	if (is_ret_zero) { // client unexpectedly killing
+	if (is_ret_zero) { // client unexpectedly killed
+		errno = ECONNRESET;
 		print_err("Error: Received EOF - client may have been killed - unexpected connection close", false); // don't terminate
 	} else { // other errors
 		if (errno == ETIMEDOUT || errno == ECONNRESET || errno == EPIPE) {
@@ -190,7 +191,7 @@ static uint64_t recv_data(int sockfd, void *buff, uint64_t size) {
 	while ( notread > 0 ) {
 
 		if ( 0 >= (nread = read(sockfd, buff + totalread, notread)) ) {
-			if (errno == EINTR) { // if the error is EINTR, simply ignore it (SIG_INT handler) and redo the reading
+			if ( (nread < 0) && errno == EINTR) { // if the error is EINTR, simply ignore it (SIG_INT handler) and redo the reading
 				continue;
 			} else { 
 				handle_connection_termination(nread == 0); // terminate if not a TCP error or unexpected connection termination
@@ -218,7 +219,7 @@ static uint64_t send_data(int sockfd, void *buff, uint64_t size) {
 	while( notwritten > 0 ) {
 	
 		if ( 0 >= (nsent = write(sockfd, buff + totalsent,	notwritten)) ) {
-			if (errno == EINTR) { // if the error is EINTR, simply ignore it (SIG_INT handler) and redo the sending
+			if ( (nsent < 0) && errno == EINTR) { // if the error is EINTR, simply ignore it (SIG_INT handler) and redo the sending
 				continue;
 			} else { 
 				handle_connection_termination(nsent == 0); // terminate if not a TCP error or unexpected connection termination
