@@ -187,7 +187,6 @@ static uint64_t recv_data(int sockfd, void *buff, uint64_t size) {
 	uint64_t nread = 0; // how much we've read so far
 	uint64_t totalread = 0; // how much we've written in last read() call
 	
-	printf("to read: %lu\n", notread);
 	while ( notread > 0 ) {
 
 		if ( 0 >= (nread = read(sockfd, buff + totalread, notread)) ) {
